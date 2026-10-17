@@ -300,7 +300,7 @@ Both choices are local to each Firstmate home and are not part of secondmate inh
 
 ## Supervision host (config/supervision-host)
 
-Two optional local, gitignored files control the supervision host for this home: `config/supervision-host-off` opts the home out, and `config/supervision-host` opts a home in and selects its engine.
+Three optional local, gitignored files control the supervision host for this home: `config/supervision-host-off` opts the home out, `config/supervision-host` opts a home in and selects its engine, and `config/supervision-host-permission-mode` selects the engine's permission mode.
 The host runs the supervision branch's contract on a headless engine session beside a non-Pi primary.
 [docs/supervision-host.md](supervision-host.md) defines its design, current scope, and verified engines.
 A Claude, Cursor, OpenCode, omp, Grok, or Codex primary can run the host.
@@ -326,16 +326,31 @@ Grok's arm command is rendered at session start, so a change to its host mode ta
 
 Only Claude has a verified engine of its own, so a Cursor, OpenCode, omp, Grok, or Codex home names `claude` in the file.
 
+### Engine permission mode
+
+`config/supervision-host-permission-mode` holds one token, its whitespace-trimmed content:
+
+| Token | Engine permission flag |
+| --- | --- |
+| `dontAsk` | `--permission-mode dontAsk`, also used when the file is absent |
+| `auto` | `--permission-mode auto` |
+
+In `dontAsk` the engine runs only its pre-approved Bash and Read calls, and every call that would prompt is denied.
+`auto` lets Claude Code's classifier review the calls instead.
+It is for a machine whose mandatory Bash sandbox blocks Firstmate's scripts, where a script call must leave the sandbox and `dontAsk` would refuse it.
+Pair it with `sandbox.excludedCommands` entries for Firstmate's `bin/fm-*` scripts in the captain's own Claude settings, such as `~/.claude/settings.json`, so those calls leave the sandbox without failing inside it first.
+Each reviewed call can cost a classifier request, and a call the classifier refuses does not run, so a turn that cannot finish hands its wake to main.
+
 ### Failures, when changes apply, and inheritance
 
-An unverified engine, a primary without a verified engine, or a malformed line leaves the host without an engine.
+An unverified engine, a primary without a verified engine, a malformed line, or a permission-mode file that is unreadable or holds any other token leaves the host without an engine.
 It takes no wake, so every wake reaches main as it would without the host.
 Each away-posture wake includes a line naming the problem.
-The running host reads both files at every wake, so an engine change or an opt-out takes effect at the next wake without a restart.
+The running host reads these files at every wake, so an engine change, a permission-mode change, or an opt-out takes effect at the next wake without a restart.
 
 The opt-out is inherited into secondmate homes: a primary that opts out also opts its secondmates out, and clearing it restores each mate's own host setting at its next spawn or convergence.
 The primary-authoritative propagation contract, including removal of a mate's local opt-out when the primary has none, is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
-`config/supervision-host` is local to each home and not inherited, because each home's engine and model are its own choice.
+`config/supervision-host` and `config/supervision-host-permission-mode` are local to each home and not inherited, because each home's engine, model, and permission mode are its own choice.
 While the home runs the host, main's lease-checked commands also take the per-task lease lock, so a claim by the host's engine cannot race a mutation main already started (`bin/fm-lease-lib.sh`).
 
 ## Backlog backend (.tasks.toml / config/backlog-backend)

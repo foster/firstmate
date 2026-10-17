@@ -967,7 +967,7 @@ handle_wake() {  # <reason-lines>
     export FM_BRANCH_REPORT_TURN="$turn"
     fm_supervision_engine_turn "$FM_SUPERVISION_ENGINE" "$FM_SUPERVISION_ENGINE_MODEL" \
       "$PROMPT_FILE" "$WAKE_FILE" "$ENGINE_SESSION" "$ENGINE_MODE" "$TURN_TIMEOUT" \
-      "$result" "$errors" "$ENGINE_PID_FILE"
+      "$result" "$errors" "$ENGINE_PID_FILE" "${FM_SUPERVISION_ENGINE_PERMISSION_MODE:-}"
   ) &
   ENGINE_SUBSHELL=$!
   wait "$ENGINE_SUBSHELL"
