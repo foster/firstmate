@@ -362,6 +362,8 @@ Today the only verified engine is Claude's print mode, measured on Claude Code 2
 
 - `--permission-mode dontAsk` with the `Bash` and `Read` allowlist never prompts.
   A denied call reaches the model as a tool error and never wedges the turn.
+- A home can pass `--permission-mode auto` instead through `config/supervision-host-permission-mode` ([configuration.md](configuration.md#engine-permission-mode)).
+  The measurements in this section cover `dontAsk` only.
 - `--safe-mode` does not override the user's default mode, so the mode is always passed.
 - Claude path-checks direct file reads against its working directories.
   So a home or state directory outside the code root is passed with `--add-dir`.

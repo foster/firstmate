@@ -2899,6 +2899,38 @@ test_unverified_engine_hands_every_away_wake_to_main() {
   pass "host: a home naming an unverified engine hands every away wake to main with the reason"
 }
 
+test_permission_mode_file_runs_the_engine_in_auto_mode() {
+  local home first
+  home=$(make_home auto-mode away)
+  printf ' auto \n' > "$home/config/supervision-host-permission-mode"
+  start_host "$home"
+  wait_until 150 watcher_live "$home" || fail "auto mode: the host never started a watcher cycle: $(cat "$home/host.out")"
+  append_status "$home" 'step one'
+  wait_until 250 handled_at_least "$home" 1 \
+    || fail "auto mode: the wake was not handled: $(cat "$home/host.out"; cat "$home/state/.supervision-host.log")"
+  first="$home/engine-call.1"
+  assert_re '^arg=--permission-mode$' "$first" "the engine must be given a permission mode"
+  assert_re '^arg=auto$' "$first" "a permission-mode file holding auto must run the engine in auto mode"
+  assert_no_re '^arg=dontAsk$' "$first" "auto mode must replace dontAsk, not add to it"
+  [ ! -s "$home/host.rc" ] || fail "auto mode: a handled away wake reached main: $(cat "$home/host.out")"
+  stop_home_processes "$home"
+  pass "host: config/supervision-host-permission-mode auto runs the engine in auto mode in place of dontAsk"
+}
+
+test_invalid_permission_mode_hands_every_away_wake_to_main() {
+  local home
+  home=$(make_home bad-mode away)
+  printf 'bypass\n' > "$home/config/supervision-host-permission-mode"
+  start_host "$home"
+  wait_until 150 watcher_live "$home" || fail "bad mode: the host never started a watcher cycle: $(cat "$home/host.out")"
+  append_status "$home" 'anything'
+  wait_until 200 host_exited "$home" || fail "bad mode: the wake did not reach main"
+  assert_re "^supervision-host: no supervision engine runs here: config/supervision-host-permission-mode holds 'bypass'; accepted values are dontAsk" \
+    "$home/host.out" "an invalid permission mode must be named on the wake it hands to main"
+  ! ls "$home"/engine-call.* >/dev/null 2>&1 || fail "bad mode: an engine ran"
+  pass "host: an invalid config/supervision-host-permission-mode runs no engine and hands every away wake to main with the reason"
+}
+
 test_host_outside_the_lock_owner_stands_down() {
   local home out rc other
   home=$(make_home not-owner attended)
@@ -3026,5 +3058,7 @@ test_park_limit_lets_a_turn_outlive_the_boundary
 test_first_cycle_status_streams_and_owner_options_reach_it
 test_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event
 test_unverified_engine_hands_every_away_wake_to_main
+test_permission_mode_file_runs_the_engine_in_auto_mode
+test_invalid_permission_mode_hands_every_away_wake_to_main
 test_host_outside_the_lock_owner_stands_down
 test_superseded_host_leaves_the_owner_untouched

@@ -8,10 +8,12 @@
 # main-session key (fm_supervision_host_main_key) and the attended readiness
 # check (fm_supervision_host_attended_ready) the host's parts share.
 #
-# THE HOME GATE (config/supervision-host-off, config/supervision-host).
-# docs/configuration.md "Supervision host" owns both files: the inherited
-# opt-out flag, the home-local engine line's schema, the default on a Claude
-# primary, and the no-engine outcome; this file implements them
+# THE HOME GATE (config/supervision-host-off, config/supervision-host,
+# config/supervision-host-permission-mode).
+# docs/configuration.md "Supervision host" owns these files: the inherited
+# opt-out flag, the home-local engine line's schema, the engine's permission
+# mode, the default on a Claude primary, and the no-engine outcome; this file
+# implements them
 # (fm_supervision_host_enabled, fm_supervision_host_config) and holds the
 # verified-engine list and each engine's default model
 # (docs/supervision-host.md "Engines"). Every reader of either file asks
@@ -93,14 +95,18 @@ fm_supervision_engine_default_model() {  # <engine>
 # fm_supervision_host_config <config-dir> <primary-harness>
 # Returns 1 when the home does not run the host (fm_supervision_host_enabled).
 # Otherwise returns 0 and sets
-# FM_SUPERVISION_ENGINE and FM_SUPERVISION_ENGINE_MODEL for a usable engine, or
-# leaves both empty and sets FM_SUPERVISION_ENGINE_PROBLEM to one plain
-# sentence naming why this home has no engine.
+# FM_SUPERVISION_ENGINE, FM_SUPERVISION_ENGINE_MODEL, and
+# FM_SUPERVISION_ENGINE_PERMISSION_MODE (from
+# config/supervision-host-permission-mode: dontAsk when the file is absent) for
+# a usable engine, or leaves all three empty and sets
+# FM_SUPERVISION_ENGINE_PROBLEM to one plain sentence naming why this home has
+# no engine.
 # shellcheck disable=SC2034 # Output globals, read by the sourcing caller.
 fm_supervision_host_config() {
-  local config=$1 primary=${2:-} line engine model extra
+  local config=$1 primary=${2:-} line engine model extra mode_file mode
   FM_SUPERVISION_ENGINE=''
   FM_SUPERVISION_ENGINE_MODEL=''
+  FM_SUPERVISION_ENGINE_PERMISSION_MODE=''
   FM_SUPERVISION_ENGINE_PROBLEM=''
   fm_supervision_host_enabled "$config" "$primary" || return 1
   line=
@@ -136,8 +142,25 @@ EOF
       return 0
       ;;
   esac
+  mode=dontAsk
+  mode_file="$config/supervision-host-permission-mode"
+  if [ -e "$mode_file" ] || [ -L "$mode_file" ]; then
+    if [ ! -f "$mode_file" ] || [ ! -r "$mode_file" ]; then
+      FM_SUPERVISION_ENGINE_PROBLEM="config/supervision-host-permission-mode is not a readable regular file"
+      return 0
+    fi
+    mode=$(tr -d '[:space:]' < "$mode_file" 2>/dev/null) || mode=
+    case "$mode" in
+      dontAsk|auto) ;;
+      *)
+        FM_SUPERVISION_ENGINE_PROBLEM="config/supervision-host-permission-mode holds '$mode'; accepted values are dontAsk (the default when the file is absent) and auto"
+        return 0
+        ;;
+    esac
+  fi
   FM_SUPERVISION_ENGINE=$engine
   FM_SUPERVISION_ENGINE_MODEL=$model
+  FM_SUPERVISION_ENGINE_PERMISSION_MODE=$mode
   return 0
 }
 
@@ -329,18 +352,28 @@ _fm_engine_reap() {
 
 # fm_supervision_engine_turn <engine> <model> <prompt-file> <message-file>
 #     <session-id> <new|resume> <timeout-seconds> <result-file> <error-file>
-#     [<pid-file>]
+#     [<pid-file> [<permission-mode>]]
 # Runs one bounded engine turn from $FM_ROOT and returns the engine's exit
 # status (124 or 137 when the bound was hit, 127 when the engine could not
 # run). <result-file> receives the engine's machine-readable result and
 # <error-file> its diagnostics. While the turn runs, <pid-file> (when given)
 # holds the bounded process's pid and identity, so a restarted host can stop
-# an engine its crashed predecessor left running.
+# an engine its crashed predecessor left running. <permission-mode> is dontAsk
+# (the default) or auto, as fm_supervision_host_config resolved it; any other
+# value runs no engine and returns 127.
 fm_supervision_engine_turn() {
   local engine=$1 model=$2 prompt=$3 message=$4 session=$5 mode=$6 timeout=$7 result=$8 errors=$9
-  local pid_file=${10:-} bin grace i ledger watched rc home_phys root_phys state_phys identity recorded
+  local pid_file=${10:-} permission_mode=${11:-dontAsk}
+  local bin grace i ledger watched rc home_phys root_phys state_phys identity recorded
   local -a args
   bin=$(fm_supervision_engine_bin "$engine" 2>"$errors") || return 127
+  case "$permission_mode" in
+    dontAsk|auto) ;;
+    *)
+      printf 'unsupported engine permission mode %s\n' "$permission_mode" > "$errors"
+      return 127
+      ;;
+  esac
   case "$timeout" in ''|0*|*[!0-9]*) timeout=1200 ;; esac
   grace=${FM_SUPERVISION_ENGINE_GRACE:-30}
   case "$grace" in ''|0*|*[!0-9]*) grace=30 ;; esac
@@ -350,7 +383,7 @@ fm_supervision_engine_turn() {
       # tool and directory options that would otherwise absorb it.
       # shellcheck disable=SC2054 # Bash,Read is one --tools value.
       args=(-p "$(cat "$message")" --safe-mode --system-prompt-file "$prompt"
-        --tools Bash,Read --permission-mode dontAsk --allowedTools Bash Read
+        --tools Bash,Read --permission-mode "$permission_mode" --allowedTools Bash Read
         --model "$model" --output-format json)
       root_phys=$(cd "$FM_ROOT" 2>/dev/null && pwd -P) || root_phys=$FM_ROOT
       home_phys=$(cd "$FM_HOME" 2>/dev/null && pwd -P) || home_phys=$FM_HOME
